@@ -52,7 +52,8 @@ async function postJson(url, body) {
       throw new Error(`n8n 请求失败：${res.status} ${res.statusText}`)
     }
 
-    return parseResponse(res)
+    // Keep the timeout active until the response body has been consumed.
+    return await parseResponse(res)
   } finally {
     clearTimeout(timer)
   }
@@ -335,3 +336,4 @@ workflowsRouter.post('/regenerate-video', async (req, res, next) => {
     next(err)
   }
 })
+

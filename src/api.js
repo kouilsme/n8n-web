@@ -9,36 +9,11 @@ import {
   mockRegenerateVideo,
 } from './mock'
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || ''
+import { request } from './http.js'
+import { createPoller } from './statusPoller.js'
 
-async function parseResponse(res) {
-  const text = await res.text()
-  if (!text || text.trim() === '') {
-    return { success: true, status: 'processing', message: '操作已受理' }
-  }
-  try {
-    const data = JSON.parse(text)
-    return Array.isArray(data) ? data[0] : data
-  } catch {
-    return { success: true, status: 'processing', message: '操作已受理' }
-  }
-}
-
-async function apiRequest(path, options = {}) {
-  const res = await fetch(`${API_BASE}${path}`, {
-    credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(options.headers || {}),
-    },
-    ...options,
-  })
-
-  const data = await parseResponse(res)
-  if (!res.ok) {
-    throw new Error(data.message || `请求失败：${res.status} ${res.statusText}`)
-  }
-  return data
+function apiRequest(path, options = {}) {
+  return request(path, { allowEmpty: options.method === 'POST', ...options })
 }
 
 function readFileAsDataUrl(file) {
@@ -107,12 +82,12 @@ export async function startWorkflow(platform, sessionId, params) {
   })
 }
 
-export async function queryStatus(taskId, platform) {
+export async function queryStatus(taskId, platform, options = {}) {
   if (config.MOCK_ENABLED) {
     return mockQueryStatus(taskId)
   }
 
-  return apiRequest(`/api/workflows/status?taskId=${encodeURIComponent(taskId)}&platform=${encodeURIComponent(platform || '')}`)
+  return apiRequest(`/api/workflows/status?taskId=${encodeURIComponent(taskId)}&platform=${encodeURIComponent(platform || '')}`, options)
 }
 
 export async function cancelWorkflow(taskId) {
@@ -182,41 +157,11 @@ export async function regenerateVideo(taskId, platform = 'douyin') {
 }
 
 export function createStatusPoller(taskId, onUpdate, onError, platform = 'xiaohongshu') {
-  let timer = null
-  let startTime = Date.now()
-  let stopped = false
-
-  const poll = async () => {
-    if (stopped) return
-
-    try {
-      if (Date.now() - startTime > config.POLL_TIMEOUT) {
-        onError(new Error('轮询超时，请检查工作流状态或刷新页面重试'))
-        return
-      }
-
-      const result = await queryStatus(taskId, platform)
-      if (stopped) return
-
-      onUpdate(result)
-
-      if (result.status === 'completed' || result.status === 'failed') return
-
-      timer = setTimeout(poll, config.POLL_INTERVAL)
-    } catch (err) {
-      if (!stopped) {
-        onError(err)
-      }
-    }
-  }
-
-  timer = setTimeout(poll, config.POLL_INTERVAL)
-
-  return () => {
-    stopped = true
-    if (timer) {
-      clearTimeout(timer)
-      timer = null
-    }
-  }
+  return createPoller({
+    query: (signal) => queryStatus(taskId, platform, { signal }),
+    onUpdate,
+    onError,
+    interval: config.POLL_INTERVAL,
+    timeout: config.POLL_TIMEOUT,
+  })
 }

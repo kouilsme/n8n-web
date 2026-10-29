@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test": "node --test src/utils/*.test.js",
     "dev": "nodemon src/server.js",
     "start": "node src/server.js",
     "prisma:generate": "prisma generate",
@@ -29,3 +30,4 @@
     "prisma": "^6.7.0"
   }
 }
+

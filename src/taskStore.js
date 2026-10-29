@@ -4,7 +4,7 @@
  * 最多保存 MAX_TASK_RECORDS 条，超出时 FIFO 淘汰最旧的
  */
 
-import config from './config'
+import config from './config.js'
 
 const STORAGE_KEY = `${config.STORAGE_PREFIX}task_records`
 const MAX_RECORDS = config.MAX_TASK_RECORDS || 50
@@ -17,7 +17,10 @@ function readAll() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return []
-    return JSON.parse(raw)
+    const records = JSON.parse(raw)
+    return Array.isArray(records)
+      ? records.filter((record) => record && typeof record === 'object' && typeof record.taskId === 'string')
+      : []
   } catch {
     return []
   }
@@ -138,12 +141,12 @@ export function deleteTask(taskId) {
 /**
  * 清空任务记录
  * @param {'xiaohongshu' | 'douyin' | null} platform  传 null 清空所有平台
+ * @param {boolean} terminalOnly  仅清空完成/失败记录，保留进行中的任务
  */
-export function clearAllTasks(platform = null) {
-  if (!platform) {
-    writeAll([])
-    return
-  }
-  const records = readAll().filter((r) => r.platform !== platform)
+export function clearAllTasks(platform = null, terminalOnly = false) {
+  const records = readAll().filter((record) => {
+    if (platform && record.platform !== platform) return true
+    return terminalOnly && !['completed', 'failed'].includes(record.status)
+  })
   writeAll(records)
 }

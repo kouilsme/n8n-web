@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "test": "node --test src/*.test.js backend/src/utils/*.test.js",
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview"
@@ -23,3 +24,4 @@
     "vite": "^6.0.5"
   }
 }
+
