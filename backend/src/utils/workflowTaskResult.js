@@ -65,6 +65,9 @@ export function mergeResultMetadata(existingMetadata, result = {}) {
   const hasConfirmedText = typeof metadata.confirmedText === 'string' && metadata.confirmedText.length > 0
   return {
     ...metadata,
+    ...Object.fromEntries(['xhsImages', 'currentImageIndex', 'frames', 'currentFrameIndex',
+      'videoUrl', 'workflowMode', 'allowRevise', 'allowConfirm', 'history', 'previewHistory']
+      .filter((key) => result[key] !== undefined).map((key) => [key, result[key]])),
     downloadUrl: result.downloadUrl ?? metadata.downloadUrl ?? null,
     fileList: preferIncomingList(result.fileList, metadata.fileList),
     storyboardDocument: hasConfirmedText && metadata.storyboardDocument
@@ -151,3 +154,4 @@ export function buildActionPersistence({
 
   return persistence
 }
+

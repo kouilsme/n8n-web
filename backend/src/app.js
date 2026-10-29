@@ -3,6 +3,7 @@ import cors from 'cors'
 import helmet from 'helmet'
 import morgan from 'morgan'
 import cookieParser from 'cookie-parser'
+import { requestSecurity } from './middleware/requestSecurity.js'
 import { config } from './config.js'
 import { authRouter } from './routes/auth.js'
 import { adminRouter } from './routes/admin.js'
@@ -19,7 +20,8 @@ export function createApp() {
     origin: config.frontendOrigin,
     credentials: true,
   }))
-  app.use(express.json({ limit: config.jsonBodyLimit }))
+  app.use('/api', requestSecurity(config.frontendOrigin))
+  app.use(express.json({ limit: config.jsonBodyLimit, inflate: false }))
   app.use(cookieParser())
   app.use(morgan(config.isProduction ? 'combined' : 'dev'))
   app.use(config.uploadsPublicPath, express.static(config.uploadsDir, {
@@ -44,12 +46,14 @@ export function createApp() {
   })
 
   app.use((err, _req, res, _next) => {
-    console.error(err)
-    res.status(500).json({
+    console.error('Request failed', { name: err.name, status: err.status || 500, code: err.code })
+    const status = [400, 413, 415].includes(err.status) ? err.status : 500
+    res.status(status).json({
       success: false,
-      message: config.isProduction ? '服务器内部错误' : err.message,
+      message: status === 413 ? '请求内容过大' : status === 415 ? '请求编码不受支持' : status === 400 ? '请求内容无效' : config.isProduction ? '服务器内部错误' : err.message,
     })
   })
 
   return app
 }
+

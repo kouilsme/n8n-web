@@ -1,38 +1,11 @@
 import express from 'express'
 import { prisma } from '../db.js'
 import { requireAuth } from '../middleware/auth.js'
+import { toClientTask } from '../utils/clientTask.js'
 
 export const tasksRouter = express.Router()
 
 tasksRouter.use(requireAuth)
-
-function toClientTask(task) {
-  const metadata = task.metadata || {}
-  const preview = metadata.confirmedText
-    ? { ...(task.resultPreview || {}), text: metadata.confirmedText }
-    : (task.resultPreview || null)
-
-  return {
-    id: task.id,
-    taskId: task.taskId,
-    platform: task.platform,
-    status: task.status.toLowerCase(),
-    formParams: task.inputParams || null,
-    preview,
-    previewHistory: metadata.previewHistory || [],
-    stepName: metadata.stepName || '',
-    statusMessage: metadata.statusMessage || '',
-    errorMessage: task.errorMessage || null,
-    createdAt: task.createdAt?.getTime ? task.createdAt.getTime() : task.createdAt,
-    updatedAt: task.updatedAt?.getTime ? task.updatedAt.getTime() : task.updatedAt,
-    completedAt: task.completedAt,
-    downloadUrl: metadata.downloadUrl || null,
-    fileList: metadata.fileList || [],
-    storyboardDocument: metadata.storyboardDocument || null,
-    generationProgress: metadata.generationProgress || null,
-    confirmedText: metadata.confirmedText || '',
-  }
-}
 
 tasksRouter.get('/', async (req, res, next) => {
   try {
@@ -65,3 +38,4 @@ tasksRouter.get('/:taskId', async (req, res, next) => {
     next(err)
   }
 })
+

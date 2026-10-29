@@ -1,21 +1,30 @@
 import express from 'express'
+import rateLimit from 'express-rate-limit'
 import { randomUUID } from 'crypto'
 import { prisma } from '../db.js'
 import { config, getWebhookUrls, isVideoPlatform, normalizePlatform } from '../config.js'
 import { requireAuth } from '../middleware/auth.js'
 
+import { createWorkflowTask } from '../utils/createWorkflowTask.js'
+import { persistWorkflowResult } from '../utils/persistWorkflowResult.js'
+
 import { buildWorkflowStartResponse } from '../utils/workflowStartResponse.js'
 import {
   buildActionPersistence,
-  mergeResultMetadata,
-  mergeResultPreview,
-  normalizeStatus,
   terminalResult,
 } from '../utils/workflowTaskResult.js'
 
 export const workflowsRouter = express.Router()
 
 workflowsRouter.use(requireAuth)
+const startLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 20,
+  keyGenerator: (req) => String(req.user.id), standardHeaders: true, legacyHeaders: false,
+  message: { success: false, message: '启动任务过于频繁，请稍后再试' } })
+const actionLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 120,
+  keyGenerator: (req) => String(req.user.id), standardHeaders: true, legacyHeaders: false,
+  skip: (req) => req.method === 'GET' || req.path === '/start',
+  message: { success: false, message: '操作过于频繁，请稍后再试' } })
+workflowsRouter.use(actionLimiter)
 
 function isTerminal(status) {
   return status === 'COMPLETED' || status === 'FAILED'
@@ -52,7 +61,8 @@ async function postJson(url, body) {
       throw new Error(`n8n 请求失败：${res.status} ${res.statusText}`)
     }
 
-    return parseResponse(res)
+    // Keep the timeout active until the response body has been consumed.
+    return await parseResponse(res)
   } finally {
     clearTimeout(timer)
   }
@@ -82,23 +92,6 @@ async function findOwnedTask(userId, taskId) {
   })
 }
 
-async function updateTaskFromResult(userId, taskId, result) {
-  const task = await findOwnedTask(userId, taskId)
-  if (!task) return null
-
-  const status = normalizeStatus(result)
-  return prisma.workflowTask.update({
-    where: { taskId: task.taskId },
-    data: {
-      status,
-      resultPreview: mergeResultPreview(task.resultPreview, task.metadata, result.preview),
-      errorMessage: status === 'FAILED' ? (result.message || '工作流执行失败') : null,
-      completedAt: isTerminal(status) ? new Date() : undefined,
-      metadata: mergeResultMetadata(task.metadata, result),
-    },
-  })
-}
-
 async function recordEvent({ userId, taskId, action, status, metadata }) {
   await prisma.workflowEvent.create({
     data: {
@@ -111,34 +104,23 @@ async function recordEvent({ userId, taskId, action, status, metadata }) {
   })
 }
 
-workflowsRouter.post('/start', async (req, res, next) => {
+workflowsRouter.post('/start', startLimiter, async (req, res, next) => {
+  if (req.body?.sessionId !== undefined && (typeof req.body.sessionId !== 'string' || !req.body.sessionId || req.body.sessionId.length > 128)) {
+    return res.status(400).json({ success: false, message: '任务 ID 格式无效' })
+  }
   const platform = normalizePlatform(req.body?.platform)
   const sessionId = String(req.body?.sessionId || randomUUID())
   const params = req.body?.params || {}
   const urls = getWebhookUrls(platform)
+  let created = false
 
   try {
-    const existingTask = await prisma.workflowTask.findUnique({ where: { taskId: sessionId } })
-    if (existingTask && existingTask.userId !== req.user.id) {
-      return res.status(409).json({ success: false, message: '任务 ID 已存在' })
+    const creation = await createWorkflowTask(prisma, req.user.id, sessionId, platform, params)
+    if (!creation.created) {
+      return res.json(isTerminal(creation.task.status) ? terminalResult(creation.task)
+        : buildWorkflowStartResponse(sessionId, { status: creation.task.status.toLowerCase(), message: '任务已受理' }))
     }
-
-    await prisma.workflowTask.upsert({
-      where: { taskId: sessionId },
-      create: {
-        userId: req.user.id,
-        platform,
-        taskId: sessionId,
-        status: 'PROCESSING',
-        inputParams: params,
-      },
-      update: {
-        status: 'PROCESSING',
-        inputParams: params,
-        errorMessage: null,
-        completedAt: null,
-      },
-    })
+    created = true
 
     const result = await postJson(urls.START_WORKFLOW_URL, {
       platform,
@@ -150,8 +132,9 @@ workflowsRouter.post('/start', async (req, res, next) => {
 
     res.json(buildWorkflowStartResponse(sessionId, result))
   } catch (err) {
-    await prisma.workflowTask.update({
-      where: { taskId: sessionId },
+    if (err.status === 409) return res.status(409).json({ success: false, message: err.message })
+    if (created) await prisma.workflowTask.updateMany({
+      where: { userId: req.user.id, taskId: sessionId, status: { notIn: ['COMPLETED', 'FAILED'] } },
       data: { status: 'FAILED', errorMessage: err.message, completedAt: new Date() },
     }).catch(() => {})
     await recordEvent({ userId: req.user.id, taskId: sessionId, action: 'start', status: 'failed', metadata: { message: err.message } }).catch(() => {})
@@ -169,7 +152,8 @@ workflowsRouter.get('/status', async (req, res, next) => {
     const urls = getWebhookUrls(task.platform)
     const url = `${urls.STATUS_QUERY_URL}?taskId=${encodeURIComponent(taskId)}`
     const result = await getJson(url)
-    await updateTaskFromResult(req.user.id, taskId, result)
+    const updatedTask = await persistWorkflowResult(prisma, req.user.id, taskId, result)
+    if (updatedTask && isTerminal(updatedTask.status)) return res.json(terminalResult(updatedTask))
 
     res.json(result)
   } catch (err) {
@@ -335,3 +319,4 @@ workflowsRouter.post('/regenerate-video', async (req, res, next) => {
     next(err)
   }
 })
+

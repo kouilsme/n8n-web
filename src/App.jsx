@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from 'react'
 import config from './config'
+import { setSessionUser, handleSessionStorage } from './session.js'
 import { getCurrentUser, login, logout } from './authApi'
 import { useTask } from './hooks/useTask'
 import { useTaskManager } from './hooks/useTaskManager'
@@ -31,7 +32,7 @@ function TaskInstance({
 
   return (
     <>
-      <aside className="w-full overflow-y-auto border-r border-gray-100 bg-white p-6 md:w-[40%] lg:w-[38%] xl:w-[35%] dark:border-gray-800 dark:bg-gray-900">
+      <aside className="max-h-[45vh] w-full shrink-0 overflow-y-auto border-r border-gray-100 bg-white p-6 md:max-h-none md:w-[40%] lg:w-[38%] xl:w-[35%] dark:border-gray-800 dark:bg-gray-900">
         <LeftPanel
           platform={platform}
           onPlatformChange={onPlatformChange}
@@ -47,7 +48,7 @@ function TaskInstance({
         />
       </aside>
 
-      <section className="hidden flex-1 bg-gray-50 p-6 md:flex md:flex-col dark:bg-gray-900/50">
+      <section className="min-h-0 min-w-0 flex-1 border-t border-gray-100 bg-gray-50 p-4 md:border-t-0 md:p-6 dark:border-gray-800 dark:bg-gray-900/50">
         <RightPanel
           platform={platform}
           taskStatus={task.taskStatus}
@@ -85,45 +86,6 @@ function TaskInstance({
           onConfirmVideo={task.confirmVideo}
         />
       </section>
-
-      <div className="max-h-[50vh] overflow-y-auto border-t border-gray-100 bg-white p-4 md:hidden dark:border-gray-800 dark:bg-gray-900">
-        <RightPanel
-          platform={platform}
-          taskStatus={task.taskStatus}
-          stepName={task.stepName}
-          statusMessage={task.statusMessage}
-          preview={task.preview}
-          history={task.history}
-          previewHistory={task.previewHistory}
-          allowRevise={task.allowRevise}
-          allowConfirm={task.allowConfirm}
-          errorMessage={task.errorMessage}
-          isActionSubmitting={task.isActionSubmitting}
-          xhsImages={task.xhsImages}
-          currentXhsImageIndex={task.currentXhsImageIndex}
-          frames={task.frames}
-          currentFrameIndex={task.currentFrameIndex}
-          videoUrl={task.videoUrl}
-          workflowMode={task.workflowMode}
-          storyboardDocument={task.storyboardDocument}
-          downloadUrl={task.downloadUrl}
-          fileList={task.fileList}
-          generationProgress={task.generationProgress}
-          onRevise={task.revise}
-          onConfirm={task.confirm}
-          onPreviewTextChange={task.updatePreviewText}
-          onRetry={task.reset}
-          onStopTask={task.stopTask}
-          onApproveXhsImage={task.approveXhsImage}
-          onRejectXhsImage={task.rejectXhsImage}
-          onRegenImages={task.regenImages}
-          onApproveFrame={task.approveFrame}
-          onRejectFrame={task.rejectFrame}
-          onGenerateVideo={task.triggerGenerateVideo}
-          onRegenVideo={task.regenVideo}
-          onConfirmVideo={task.confirmVideo}
-        />
-      </div>
     </>
   )
 }
@@ -164,7 +126,7 @@ function WorkspaceApp({ user, isDark, onToggleDark, onLogout }) {
       {view === 'admin' && user.role === 'ADMIN' ? (
         <AdminDashboard />
       ) : (
-        <main className="flex flex-1 overflow-hidden">
+        <main className="flex min-h-0 flex-1 flex-col overflow-hidden md:flex-row">
           <TaskInstance
             key={activeTaskKey}
             platform={selectedTaskRecord?.platform || platform}
@@ -206,10 +168,16 @@ export default function App() {
     let alive = true
     getCurrentUser()
       .then((result) => {
-        if (alive) setUser(result.user)
+        if (alive) {
+          setSessionUser(result.user.id)
+          setUser(result.user)
+        }
       })
       .catch(() => {
-        if (alive) setUser(null)
+        if (alive) {
+          setSessionUser(null)
+          setUser(null)
+        }
       })
       .finally(() => {
         if (alive) setIsAuthLoading(false)
@@ -217,8 +185,17 @@ export default function App() {
     return () => { alive = false }
   }, [])
 
+  useEffect(() => {
+    const handleStorage = (event) => {
+      if (handleSessionStorage(event)) setUser(null)
+    }
+    window.addEventListener('storage', handleStorage)
+    return () => window.removeEventListener('storage', handleStorage)
+  }, [])
+
   const handleLogin = async (email, password) => {
     const result = await login(email, password)
+    setSessionUser(result.user.id)
     setUser(result.user)
   }
 
@@ -226,6 +203,7 @@ export default function App() {
     try {
       await logout()
     } finally {
+      setSessionUser(null)
       setUser(null)
     }
   }
@@ -250,6 +228,7 @@ export default function App() {
 
   return (
     <WorkspaceApp
+      key={user.id}
       user={user}
       isDark={isDark}
       onToggleDark={() => setIsDark((d) => !d)}
@@ -257,3 +236,4 @@ export default function App() {
     />
   )
 }
+

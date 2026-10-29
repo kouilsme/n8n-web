@@ -1,24 +1,4 @@
-const API_BASE = import.meta.env.VITE_API_BASE_URL || ''
-
-async function request(path, options = {}) {
-  const res = await fetch(`${API_BASE}${path}`, {
-    credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(options.headers || {}),
-    },
-    ...options,
-  })
-
-  const text = await res.text()
-  const data = text ? JSON.parse(text) : {}
-
-  if (!res.ok) {
-    throw new Error(data.message || `请求失败：${res.status}`)
-  }
-
-  return data
-}
+import { request } from './http.js'
 
 export function login(email, password) {
   return request('/api/auth/login', {
@@ -61,10 +41,11 @@ export function updateUserStatus(id, status) {
   })
 }
 
-export function getUserTasks() {
-  return request('/api/tasks')
+export function getUserTasks(options = {}) {
+  return request('/api/tasks', options)
 }
 
 export function getUserTask(taskId) {
   return request(`/api/tasks/${encodeURIComponent(taskId)}`)
 }
+

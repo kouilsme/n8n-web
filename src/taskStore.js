@@ -4,9 +4,9 @@
  * 最多保存 MAX_TASK_RECORDS 条，超出时 FIFO 淘汰最旧的
  */
 
-import config from './config'
+import config from './config.js'
+import { userStorageKey } from './session.js'
 
-const STORAGE_KEY = `${config.STORAGE_PREFIX}task_records`
 const MAX_RECORDS = config.MAX_TASK_RECORDS || 50
 
 /**
@@ -15,9 +15,14 @@ const MAX_RECORDS = config.MAX_TASK_RECORDS || 50
  */
 function readAll() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
+    const key = userStorageKey('task_records')
+    if (!key) return []
+    const raw = localStorage.getItem(key)
     if (!raw) return []
-    return JSON.parse(raw)
+    const records = JSON.parse(raw)
+    return Array.isArray(records)
+      ? records.filter((record) => record && typeof record === 'object' && typeof record.taskId === 'string')
+      : []
   } catch {
     return []
   }
@@ -29,7 +34,8 @@ function readAll() {
  */
 function writeAll(records) {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(records))
+    const key = userStorageKey('task_records')
+    if (key) localStorage.setItem(key, JSON.stringify(records))
   } catch {
     // localStorage 写入失败（如隐私模式或存储已满），静默忽略
   }
@@ -138,12 +144,12 @@ export function deleteTask(taskId) {
 /**
  * 清空任务记录
  * @param {'xiaohongshu' | 'douyin' | null} platform  传 null 清空所有平台
+ * @param {boolean} terminalOnly  仅清空完成/失败记录，保留进行中的任务
  */
-export function clearAllTasks(platform = null) {
-  if (!platform) {
-    writeAll([])
-    return
-  }
-  const records = readAll().filter((r) => r.platform !== platform)
+export function clearAllTasks(platform = null, terminalOnly = false) {
+  const records = readAll().filter((record) => {
+    if (platform && record.platform !== platform) return true
+    return terminalOnly && !['completed', 'failed'].includes(record.status)
+  })
   writeAll(records)
 }

@@ -7,8 +7,10 @@
  * 当组件重新 mount 并接管时，调用 unregister 停止后台轮询。
  */
 
-import { createStatusPoller } from './api'
-import { saveTask, getTask } from './taskStore'
+import { createStatusPoller } from './api.js'
+import { saveTask, getTask } from './taskStore.js'
+import { getSession, isCurrentSession } from './session.js'
+import { isVideoPlatform } from './platforms.js'
 
 // Map<taskId, stopFn>
 const registry = new Map()
@@ -34,16 +36,24 @@ function notifyListener() {
  * @param {'xiaohongshu'|'douyin'} platform
  */
 export function registerTask(taskId, platform) {
+  const session = getSession()
+  if (!isCurrentSession(session)) return
   if (registry.has(taskId)) return // 已在后台，不重复注册
 
   const stopFn = createStatusPoller(
     taskId,
-    (result) => handleUpdate(taskId, platform, result),
-    (err) => handleError(taskId, err),
+    (result) => { if (isCurrentSession(session)) handleUpdate(taskId, platform, result) },
+    (err) => { if (isCurrentSession(session)) handleError(taskId, err) },
     platform,
   )
 
-  registry.set(taskId, stopFn)
+  const signal = session.controller.signal
+  const cancel = () => unregisterTask(taskId)
+  signal.addEventListener('abort', cancel, { once: true })
+  registry.set(taskId, () => {
+    stopFn()
+    signal.removeEventListener('abort', cancel)
+  })
 }
 
 /**
@@ -170,8 +180,11 @@ function handleUpdate(taskId, platform, result) {
   // 稳定状态保护：已到达需要用户操作的状态时，不允许轮询降级为 processing
   // （n8n 并发执行时 staticData/文件可能暂时查不到任务，返回 processing）
   const STABLE_STATUSES = new Set(['waiting_user_feedback', 'image_review', 'frame_review', 'video_review'])
-  if (STABLE_STATUSES.has(current.status) && result.status === 'processing') {
-    return  // 不降级，保持当前稳定状态
+
+  // Preserve artifacts and review permissions even when status is already completed.
+  for (const key of ['downloadUrl', 'fileList', 'generationProgress', 'frames',
+    'currentFrameIndex', 'videoUrl', 'allowRevise', 'allowConfirm', 'history']) {
+    if (result[key] !== undefined) updates[key] = result[key]
   }
 
   if (result.status === 'failed') {
@@ -180,7 +193,7 @@ function handleUpdate(taskId, platform, result) {
   } else if (result.status === 'completed') {
     updates.status = 'completed'
     updates.preview = protectPreviewText(result.preview, current)
-    if (platform === 'douyin' && (current.confirmedText || result.storyboardDocument)) {
+    if (isVideoPlatform(platform) && (current.confirmedText || result.storyboardDocument)) {
       updates.storyboardDocument = current.confirmedText || result.storyboardDocument
     }
   } else if (result.status === 'waiting_user_feedback') {
@@ -217,6 +230,7 @@ function handleUpdate(taskId, platform, result) {
     if (current.confirmedText || result.storyboardDocument) updates.storyboardDocument = current.confirmedText || result.storyboardDocument
     updates.preview = protectPreviewText(result.preview, current)
   } else {
+    if (STABLE_STATUSES.has(current.status) && result.status === 'processing') return
     updates.status = 'processing'
   }
 
@@ -225,7 +239,7 @@ function handleUpdate(taskId, platform, result) {
 
   // 终态自动注销
   if (TERMINAL.has(updates.status)) {
-    registry.delete(taskId) // stopFn 已在 createStatusPoller 内部停止
+    unregisterTask(taskId)
   }
 }
 
@@ -237,3 +251,4 @@ function handleError(taskId, err) {
   }
   unregisterTask(taskId)
 }
+
