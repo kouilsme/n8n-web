@@ -1,4 +1,4 @@
-import config from './config'
+import config from './config.js'
 import {
   mockStartWorkflow,
   mockQueryStatus,
@@ -7,7 +7,7 @@ import {
   mockFrameAction,
   mockGenerateVideo,
   mockRegenerateVideo,
-} from './mock'
+} from './mock.js'
 
 import { request } from './http.js'
 import { createPoller } from './statusPoller.js'

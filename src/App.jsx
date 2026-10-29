@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from 'react'
 import config from './config'
+import { setSessionUser, handleSessionStorage } from './session.js'
 import { getCurrentUser, login, logout } from './authApi'
 import { useTask } from './hooks/useTask'
 import { useTaskManager } from './hooks/useTaskManager'
@@ -167,10 +168,16 @@ export default function App() {
     let alive = true
     getCurrentUser()
       .then((result) => {
-        if (alive) setUser(result.user)
+        if (alive) {
+          setSessionUser(result.user.id)
+          setUser(result.user)
+        }
       })
       .catch(() => {
-        if (alive) setUser(null)
+        if (alive) {
+          setSessionUser(null)
+          setUser(null)
+        }
       })
       .finally(() => {
         if (alive) setIsAuthLoading(false)
@@ -178,8 +185,17 @@ export default function App() {
     return () => { alive = false }
   }, [])
 
+  useEffect(() => {
+    const handleStorage = (event) => {
+      if (handleSessionStorage(event)) setUser(null)
+    }
+    window.addEventListener('storage', handleStorage)
+    return () => window.removeEventListener('storage', handleStorage)
+  }, [])
+
   const handleLogin = async (email, password) => {
     const result = await login(email, password)
+    setSessionUser(result.user.id)
     setUser(result.user)
   }
 
@@ -187,6 +203,7 @@ export default function App() {
     try {
       await logout()
     } finally {
+      setSessionUser(null)
       setUser(null)
     }
   }
@@ -211,6 +228,7 @@ export default function App() {
 
   return (
     <WorkspaceApp
+      key={user.id}
       user={user}
       isDark={isDark}
       onToggleDark={() => setIsDark((d) => !d)}

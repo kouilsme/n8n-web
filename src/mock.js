@@ -1,12 +1,12 @@
-﻿/**
+/**
  * Mock 服务
  * 在没有真实 n8n 接口时，模拟完整工作流流程
  * 支持：小红书全流程 + 重新生成图片
  *       抖音全流程：草稿 → 逐帧审核 → 视频生成 → 视频审核
  */
 
-import config from './config'
-import { getPlatformLabel, isVideoPlatform } from './platforms'
+import config from './config.js'
+import { getPlatformLabel, isVideoPlatform } from './platforms.js'
 
 // 内存中存储 mock 任务状态
 const mockTasks = {}
@@ -615,6 +615,7 @@ export async function mockRegenerateVideo(taskId) {
   task.videoSeed = Date.now()
   return { success: true, status: 'processing', message: '正在重新生成视频...' }
 }
+
 
 
 

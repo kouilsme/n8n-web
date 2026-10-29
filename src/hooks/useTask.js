@@ -25,6 +25,7 @@ import {
 } from '../api'
 import { usePoller } from './usePoller'
 import { saveTask } from '../taskStore'
+import { getSession, isCurrentSession } from '../session.js'
 import { registerTask, unregisterTask, isRegistered } from '../backgroundPoller'
 
 import { isVideoPlatform } from '../platforms'
@@ -119,12 +120,16 @@ function hydrateFromRecord(record) {
     stepName: record.stepName || '',
     statusMessage: record.statusMessage || '',
     preview,
+    history: record.history || [],
     previewHistory: record.previewHistory || [],
+    allowRevise: record.allowRevise ?? record.status === 'waiting_user_feedback',
+    allowConfirm: record.allowConfirm ?? record.status === 'waiting_user_feedback',
     errorMessage: record.errorMessage || '',
     createdAt: record.createdAt || null,
     xhsImages: record.xhsImages || [],
     currentXhsImageIndex: record.currentXhsImageIndex || 0,
     frames: record.frames || [],
+    currentFrameIndex: record.currentFrameIndex ?? 0,
     confirmedText: record.confirmedText || '',
     _manualPreviewText: record._manualPreviewText ?? null,
     _manualPreviewUpdatedAt: record._manualPreviewUpdatedAt || null,
@@ -140,6 +145,7 @@ function hydrateFromRecord(record) {
 
 export function useTask(onTaskSaved, initialTaskRecord = null) {
   const [state, setState] = useState(() => hydrateFromRecord(initialTaskRecord))
+  const sessionRef = useRef(getSession())
 
   // 用 ref 追踪最新 state，供闭包内异步回调使用
   const stateRef = useRef(state)
@@ -164,7 +170,9 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
 
   // 将 state 补丁合并并持久化
   const patch = useCallback((updates, persist = true) => {
+    if (!isCurrentSession(sessionRef.current)) return
     setState(prev => {
+      if (!isCurrentSession(sessionRef.current)) return prev
       const next = { ...prev, ...updates }
       stateRef.current = next
       if (persist && next.taskId) {
@@ -177,12 +185,15 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
           statusMessage: next.statusMessage,
           preview: next.preview,
           previewHistory: next.previewHistory,
+          allowRevise: next.allowRevise,
+          allowConfirm: next.allowConfirm,
           errorMessage: next.errorMessage || null,
           createdAt: next.createdAt,
           xhsImages: next.xhsImages,
           currentXhsImageIndex: next.currentXhsImageIndex,
           // 抖音专用字段
           frames: next.frames,
+          currentFrameIndex: next.currentFrameIndex,
           confirmedText: next.confirmedText,
           _manualPreviewText: next._manualPreviewText,
           _manualPreviewUpdatedAt: next._manualPreviewUpdatedAt,
@@ -251,6 +262,16 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
 
     if (result.status === 'failed') {
       patch({ ...common, taskStatus: 'failed', errorMessage: result.message || '工作流执行失败' })
+      return
+    }
+
+    if (result.status === 'completed') {
+      const updates = { ...common, taskStatus: 'completed', preview: protectPreviewText(result.preview, cur) }
+      if (isVideo && result.videoUrl) updates.videoUrl = result.videoUrl
+      if (isVideo && result.downloadUrl) updates.downloadUrl = result.downloadUrl
+      if (isVideo && result.fileList) updates.fileList = result.fileList
+      if (isVideo && (cur.confirmedText || result.storyboardDocument)) updates.storyboardDocument = cur.confirmedText || result.storyboardDocument
+      patch(updates)
       return
     }
 
@@ -350,16 +371,6 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
       }
     }
 
-    if (result.status === 'completed') {
-      const updates = { ...common, taskStatus: 'completed', preview: protectPreviewText(result.preview, cur) }
-      if (isVideo && result.videoUrl) updates.videoUrl = result.videoUrl
-      if (isVideo && result.downloadUrl) updates.downloadUrl = result.downloadUrl
-      if (isVideo && result.fileList) updates.fileList = result.fileList
-      if (isVideo && (cur.confirmedText || result.storyboardDocument)) updates.storyboardDocument = cur.confirmedText || result.storyboardDocument
-      patch(updates)
-      return
-    }
-
     if (result.status === 'waiting_user_feedback') {
       let newPreview = result.preview || cur.preview
       const localDraftText = manualPreviewTextRef.current ?? cur._manualPreviewText
@@ -427,6 +438,7 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
 
   // ── 前台接管：若任务在后台，先注销再开始前台轮询 ──────────
   const startForegroundPolling = useCallback((taskId, platform) => {
+    if (!isCurrentSession(sessionRef.current)) return
     if (isRegistered(taskId)) {
       unregisterTask(taskId)
     }
@@ -509,6 +521,7 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
         uploadedStorageKeys = uploadedFiles.map((file) => file.storageKey).filter(Boolean)
       }
 
+      if (!isCurrentSession(sessionRef.current)) return
       const workflowParams = withReferenceImageParams(serializableFormData, uploadedFiles)
       patch({
         formParams: workflowParams,
@@ -517,6 +530,7 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
 
       startForegroundPolling(sessionId, platform)
       const result = await startWorkflow(platform, sessionId, workflowParams)
+      if (!isCurrentSession(sessionRef.current)) return
       if (result?.success === false) {
         if (uploadedStorageKeys.length > 0) {
           deleteReferenceImages(uploadedStorageKeys).catch(() => {})
@@ -528,6 +542,7 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
         stopPolling()
       }
     })().catch((err) => {
+      if (!isCurrentSession(sessionRef.current)) return
       if (uploadedStorageKeys.length > 0) {
         deleteReferenceImages(uploadedStorageKeys).catch(() => {})
       }
@@ -842,3 +857,4 @@ export function useTask(onTaskSaved, initialTaskRecord = null) {
     reset,
   }
 }
+

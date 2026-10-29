@@ -1,10 +1,11 @@
-﻿import path from 'path'
+import path from 'path'
 import { randomUUID } from 'crypto'
 import { promises as fs } from 'fs'
 import express from 'express'
 import rateLimit from 'express-rate-limit'
 import { config } from '../config.js'
 import { requireAuth } from '../middleware/auth.js'
+import { hasImageSignature } from '../utils/imageSignature.js'
 
 export const uploadsRouter = express.Router()
 
@@ -70,7 +71,7 @@ function normalizeStorageKey(storageKey, userId) {
   const segments = normalized.split('/')
   if (segments.length !== 4) return null
   if (segments[0] !== 'reference-images') return null
-  if (segments[1] !== 'xiaohongshu' && segments[1] !== 'douyin') return null
+  if (!['xiaohongshu', 'douyin', 'zhihu', 'wechat', 'kuaishou', 'bilibili'].includes(segments[1])) return null
   if (segments[2] !== String(userId)) return null
   if (!segments[3]) return null
   return normalized
@@ -123,6 +124,9 @@ uploadsRouter.post('/reference-images', async (req, res, next) => {
         throw new UploadValidationError(`单张图片不能超过 ${(config.maxReferenceImageBytes / (1024 * 1024)).toFixed(0)}MB`)
       }
 
+      if (!hasImageSignature(buffer, mimeType)) {
+        throw new UploadValidationError('图片内容与声明格式不匹配')
+      }
       return { displayName, mimeType, buffer }
     })
 
@@ -168,6 +172,7 @@ uploadsRouter.delete('/reference-images', async (req, res, next) => {
     next(err)
   }
 })
+
 
 
 

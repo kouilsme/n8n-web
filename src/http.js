@@ -22,7 +22,7 @@ export async function request(path, options = {}) {
     const res = await fetch(`${API_BASE}${path}`, {
       ...fetchOptions,
       credentials: 'include',
-      headers: { 'Content-Type': 'application/json', ...headers },
+      headers: { 'Content-Type': 'application/json', 'X-Workflow-Client': 'WorkflowStudio', ...headers },
       signal: controller.signal,
     })
     const text = await res.text()

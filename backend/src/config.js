@@ -1,7 +1,9 @@
-﻿import path from 'path'
+import path from 'path'
 import dotenv from 'dotenv'
+import { validateProductionSecurity } from './utils/productionSecurity.js'
 
 dotenv.config()
+validateProductionSecurity(process.env)
 
 const isProduction = process.env.NODE_ENV === 'production'
 
@@ -24,7 +26,7 @@ export const config = {
   port: Number(process.env.PORT || 4000),
   databaseUrl: required('DATABASE_URL'),
   sessionSecret: required('SESSION_SECRET', isProduction ? undefined : 'dev-only-session-secret'),
-  cookieSecure: process.env.COOKIE_SECURE === 'true',
+  cookieSecure: process.env.COOKIE_SECURE ? process.env.COOKIE_SECURE === 'true' : isProduction,
   frontendOrigin: process.env.FRONTEND_ORIGIN || 'http://localhost:3000',
   adminEmail: process.env.ADMIN_EMAIL,
   adminInitialPassword: process.env.ADMIN_INITIAL_PASSWORD,
@@ -75,3 +77,4 @@ export function isVideoPlatform(platform) {
 export function getWebhookUrls(platform) {
   return isVideoPlatform(platform) ? config.webhooks.douyin : config.webhooks.xiaohongshu
 }
+

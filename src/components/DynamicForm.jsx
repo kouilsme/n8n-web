@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import config from '../config'
+import { userStorageKey } from '../session.js'
 
 function createEmptyValues(schema) {
   return schema.reduce((acc, field) => {
@@ -35,7 +35,7 @@ function formatFileSize(size) {
 }
 
 export default function DynamicForm({ schema, platform, onSubmit, isSubmitting }) {
-  const storageKey = `${config.STORAGE_PREFIX}form_${platform}`
+  const storageKey = userStorageKey(`form_${platform}`)
 
   const getInitialValues = useCallback(() => {
     const baseValues = createEmptyValues(schema)

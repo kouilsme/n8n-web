@@ -5,8 +5,8 @@
  */
 
 import config from './config.js'
+import { userStorageKey } from './session.js'
 
-const STORAGE_KEY = `${config.STORAGE_PREFIX}task_records`
 const MAX_RECORDS = config.MAX_TASK_RECORDS || 50
 
 /**
@@ -15,7 +15,9 @@ const MAX_RECORDS = config.MAX_TASK_RECORDS || 50
  */
 function readAll() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
+    const key = userStorageKey('task_records')
+    if (!key) return []
+    const raw = localStorage.getItem(key)
     if (!raw) return []
     const records = JSON.parse(raw)
     return Array.isArray(records)
@@ -32,7 +34,8 @@ function readAll() {
  */
 function writeAll(records) {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(records))
+    const key = userStorageKey('task_records')
+    if (key) localStorage.setItem(key, JSON.stringify(records))
   } catch {
     // localStorage 写入失败（如隐私模式或存储已满），静默忽略
   }

@@ -3,6 +3,8 @@ import { getUserTask, getUserTasks } from '../authApi'
 import { getAllTasks, deleteTask, clearAllTasks, getTask } from '../taskStore'
 import { setUpdateListener } from '../backgroundPoller'
 
+import { getSession, isCurrentSession } from '../session.js'
+
 import { mergeTasks } from '../taskMerge.js'
 
 const TERMINAL_STATUSES = new Set(['completed', 'failed'])
@@ -12,6 +14,7 @@ export function useTaskManager() {
   const [activeTaskKey, setActiveTaskKey] = useState('task_0')
   const [selectedTaskRecord, setSelectedTaskRecord] = useState(null)
 
+  const sessionRef = useRef(getSession())
   const remoteTasksRef = useRef([])
   const hiddenTaskIdsRef = useRef(new Set())
   const refreshTimerRef = useRef(null)
@@ -22,6 +25,7 @@ export function useTaskManager() {
   const refreshTaskRecords = useCallback(() => {
     clearTimeout(refreshTimerRef.current)
     refreshTimerRef.current = setTimeout(() => {
+      if (!isCurrentSession(sessionRef.current)) return
       setTaskRecords(mergeTasks(getAllTasks(), remoteTasksRef.current))
     }, 0)
   }, [])
@@ -34,7 +38,7 @@ export function useTaskManager() {
       controller = new AbortController()
       try {
         const result = await getUserTasks({ signal: controller.signal })
-        if (!stopped) {
+        if (!stopped && isCurrentSession(sessionRef.current)) {
           remoteTasksRef.current = (result.tasks || []).filter((task) => !hiddenTaskIdsRef.current.has(task.taskId))
           refreshTaskRecords()
         }
@@ -69,7 +73,7 @@ export function useTaskManager() {
       const result = await getUserTask(taskId)
       remoteRecord = result.task
     } catch {}
-    if (selection !== selectionRef.current) return
+    if (selection !== selectionRef.current || !isCurrentSession(sessionRef.current)) return
     const localRecord = getTask(taskId)
     const record = mergeTasks(localRecord ? [localRecord] : [], remoteRecord ? [remoteRecord] : [])[0]
     if (!record) return

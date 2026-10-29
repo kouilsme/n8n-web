@@ -6,6 +6,7 @@
 
 import { useRef, useCallback } from 'react'
 import { createStatusPoller } from '../api'
+import { getSession, isCurrentSession } from '../session.js'
 
 /**
  * @param {Function} onUpdate  每次收到状态更新时的回调
@@ -25,8 +26,20 @@ export function usePoller(onUpdate, onError) {
   const start = useCallback((taskId, platform) => {
     // 先停止可能存在的旧轮询
     stop()
-    stopRef.current = createStatusPoller(taskId, onUpdate, onError, platform)
+    const session = getSession()
+    if (!isCurrentSession(session)) return
+    const signal = session.controller.signal
+    const stopPoller = createStatusPoller(taskId,
+      (result) => { if (isCurrentSession(session)) onUpdate(result) },
+      (err) => { if (isCurrentSession(session)) onError(err) }, platform)
+    const cancel = () => {
+      stopPoller()
+      signal.removeEventListener('abort', cancel)
+    }
+    signal.addEventListener('abort', cancel, { once: true })
+    stopRef.current = cancel
   }, [stop, onUpdate, onError])
 
   return { start, stop }
 }
+

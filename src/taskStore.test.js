@@ -1,8 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { setSessionUser } from './session.js'
 import { saveTask, getTask, getAllTasks, clearAllTasks } from './taskStore.js'
 
 function storage(t, initial = null) {
+  setSessionUser('test')
+  t.after(() => setSessionUser(null))
   let value = initial
   const previous = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
   Object.defineProperty(globalThis, 'localStorage', {
